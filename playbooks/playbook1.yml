@@ -1,0 +1,110 @@
+---
+- hosts: remote-wsgi
+  remote_user: ubuntu
+  vars_files:
+    - ../external_vars.yml
+  tasks:
+    - name: Update the Ubuntu machine with all the latest stuff
+      apt: update_cache=yes
+      become: yes
+      become_user: root
+
+    - name: Upgrade the Ubuntu machine with all the latest stuff
+      apt: upgrade=yes
+      become: yes
+      become_method: sudo
+
+    - name: Install All the things
+      apt: name={{ item }} state=latest
+      become: yes
+      become_method: sudo
+      with_items:
+        - nginx
+        - python3
+        - python3-pip
+        - python3.4-venv
+        - git
+        - gunicorn
+        - libtiff5-dev
+        - libjpeg8-dev
+        - zlib1g-dev
+        - libfreetype6-dev
+        - liblcms2-dev
+        - libwebp-dev
+        - tcl8.6-dev
+        - tk8.6-dev
+        - python-tk
+        - python-dev
+        - libpq-dev
+        - python-virtualenv
+
+    # - name: Remove something from the django-imager app
+    #   command: rm -rf /home/ubuntu/django-imager/README.rst
+    #- file:
+    #    path: "{{ env_name }}/bin"
+    #    state: directory
+    #    mode: 0755
+
+    - name: Add environment variables to bashrc
+      shell: echo "export {{ item }}" >> ~/.bashrc
+      with_items:
+        - SECRET_KEY='{{ secret_key }}'
+        - DATABASE_NAME={{ database_name }}
+        - DATABASE_USER={{ database_user }}
+        - DATABASE_PASSWORD={{database_password }}
+        - DATABASE_HOST={{ database_host }}
+        - DATABASE_PORT={{ database_port }}
+        - AWS_HOST={{ aws_host }}
+        - AWS_HOST_IP={{ aws_host_ip }}
+        - EMAIL_PASSWORD={{ email_password }}
+
+    - name: Clone the {{ app_name }} to the Home Directory
+      git: clone=yes repo=https://github.com/serashioda/django-imager.git dest={{ app_root }} version=deployment
+
+    - name: Create virtualenv
+      command: virtualenv /home/ubuntu/{{ app_name }} -p python3.4 creates="/home/ubuntu/{{ app_name }}/bin"
+
+    - name: Install the packages specified in requirements.pip in the Python 3 environment
+      pip: virtualenv={{ app_name }} requirements={{ app_root }}/requirements.pip
+    
+    - name: Create a virtual environment in the {{ app_name }} app repo
+      command: python3 -m venv .
+
+    - name: Install gunicorn to the virtualenv
+      pip: virtualenv={{ app_name }} name=gunicorn
+
+    #- name: Install {{ app_name }} to the virtualenv
+    #  pip: virtualenv={{ app_name }} name=/home/ubuntu/{{ app_name }}/ extra_args="-e"
+
+    - name: Register the old default file
+      stat: path=/etc/nginx/sites-available/default.orig
+      register: default_stat
+
+    - name: Rename old default file if a copy doesn't already exist
+      become: yes
+      become_user: root
+      command: mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.orig
+      when: not default_stat.stat.exists
+
+    - name: Create a new default file for nginx
+      become: yes
+      become_user: root
+      template: src=../templates/django-imager_config dest=/etc/nginx/sites-available/default
+
+    - name: Check the new default file for nginx
+      become: yes
+      become_user: root
+      command: cat /etc/nginx/sites-available/default
+
+    - name: Restart nginx service
+      become: yes
+      become_user: root
+      service: name=nginx state=restarted
+
+    - name: Copy upstart script into /etc/init
+      become: yes
+      become_user: root
+      template: src=../templates/upstart_config dest=/etc/init/{{ app_name }}.conf
+
+    - name: Restart the app upstart job
+      service: name={{ app_name }} state=restarted

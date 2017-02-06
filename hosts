@@ -1,0 +1,9 @@
+[remote-wsgi]
+54.218.75.89
+
+[remote-wsgi:vars]
+ansible_ssh_user=ubuntu
+ansible_ssh_private_key_file=~/dropbox/sera-key-pair.pem
+env_name=/home/ubuntu/django-imager
+server_name=ec2-54-218-75-89.us-west-2.compute.amazonaws.com
+
